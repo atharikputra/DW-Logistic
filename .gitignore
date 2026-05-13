@@ -1,0 +1,10 @@
+# Jangan upload folder data database (karena filenya besar dan privat)
+LogiTrack_DB/ 
+pgdata/
+
+# Jangan upload file CSV mentah (biasanya terlalu besar untuk GitHub)
+*.csv
+
+# File log dan environment rahasia
+.env
+*.log

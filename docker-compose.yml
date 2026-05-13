@@ -1,0 +1,13 @@
+services:
+  db:
+    image: postgres:latest
+    container_name: LogiTrack_DW
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123  # Ganti dengan password yang kamu buat tadi
+      POSTGRES_DB: logitrack_dw
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data_db:/var/lib/postgresql
