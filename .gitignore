@@ -1,6 +1,7 @@
 # Jangan upload folder data database (karena filenya besar dan privat)
 LogiTrack_DB/ 
 pgdata/
+data_db/
 
 # Jangan upload file CSV mentah (biasanya terlalu besar untuk GitHub)
 *.csv
