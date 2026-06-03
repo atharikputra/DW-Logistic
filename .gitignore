@@ -8,4 +8,11 @@ data_db/
 
 # File log dan environment rahasia
 .env
+.env.local
 *.log
+
+# Virtual environment dan cache Python lokal
+.venv/
+venv/
+__pycache__/
+*.py[cod]

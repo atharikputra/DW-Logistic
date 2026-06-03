@@ -1,48 +1,118 @@
-# JNE Logistics Data Warehouse - ETL Otomatis
+# JNE Logistics Data Warehouse
 
-Folder ini berisi versi revisi yang sudah dibuat lebih dinamis dan nyambung antar-file:
+Project tugas akhir Data Warehouse untuk simulasi performa pengiriman logistik. Aplikasi ini memisahkan workflow menjadi data generation, ETL operations, database warehouse PostgreSQL, dan delivery analytics untuk kebutuhan manajerial.
 
-- `generate_db.py` membuat CSV raw dengan nama timestamp dinamis di `data/raw/`.
-- `etl_process.py` membaca CSV terbaru/terpilih, membersihkan data, membuat schema PostgreSQL, mengisi 9 dimensi + 1 fact table, dan mencatat proses ETL ke tabel log.
-- `app.py` menjalankan generate + ETL langsung dari dashboard Streamlit dan menampilkan hasil proses ETL.
-- `schema.sql` berisi star schema PostgreSQL yang bisa dilihat di DBeaver.
+## Struktur Utama
 
-## 1. Install package
+- `generate_data.py`: membuat raw CSV dummy ke folder `raw/`.
+- `etl_process.py`: ETL core dari raw CSV ke PostgreSQL star schema.
+- `pages/etl_operations.py`: halaman Streamlit untuk generate raw data, run ETL, dan audit log.
+- `pages/delivery_analytics.py`: dashboard manajerial untuk SLA, cabang, rute, destinasi, customer, item, dan root cause delay.
+- `utils/queries.py`: query analytics agar halaman visual tidak bercampur dengan SQL.
+- `schema.sql`: definisi fact table, dimension table, dan ETL log.
+- `docker-compose.yml`: menjalankan PostgreSQL dan Adminer.
 
-```bash
-pip install -r requirements.txt
+## 1. Setup Project
+
+Kalau baru clone:
+
+```powershell
+git clone "https://github.com/atharikputra/DW-Logistic"
+cd "DW-Logistic"
 ```
 
-## 2. Siapkan PostgreSQL
+Kalau sudah ada folder project:
 
-Buat database bernama `logitrack_dw`. Default koneksi yang dipakai kode:
+```powershell
+cd "C:\AIDAN\SEM 6\DATWEAR\DW-Logistic"
+```
+
+Buat dan aktifkan virtual environment:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+Kalau PowerShell menolak aktivasi:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+## 2. Setup Environment
+
+Copy file contoh environment:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Default koneksi aplikasi ke PostgreSQL:
 
 ```text
-Host     : localhost
+Host     : 127.0.0.1
 Port     : 5432
 Database : logitrack_dw
 User     : admin
 Password : admin123
-Schema   : public
 ```
 
-Jika user/password berbeda, ubah `PostgreSQL DB URL` di sidebar dashboard atau set environment variable:
+## 3. Jalankan PostgreSQL Dan Adminer
 
-```bash
-set LOGITRACK_DB_URL=postgresql://user:password@localhost:5432/logitrack_dw
+```powershell
+docker compose up -d
 ```
 
-## 3. Jalankan dashboard
+Cek container:
 
-```bash
+```powershell
+docker ps
+```
+
+Harus muncul container:
+
+- `LogiTrack_DW`: PostgreSQL database.
+- `LogiTrack_Adminer`: web database viewer.
+
+## 4. Jalankan Streamlit
+
+```powershell
 streamlit run app.py
 ```
 
-Lalu klik tombol **Generate + ETL** di sidebar.
+Alur demo yang disarankan:
 
-## 4. Lihat di DBeaver
+1. Buka halaman `ETL Operations`.
+2. Set jumlah data, rentang tanggal, seed opsional, dan opsi dirty data.
+3. Klik `Generate Raw Data`.
+4. Klik `Run ETL Pipeline`.
+5. Buka halaman `Delivery Analytics`.
+6. Gunakan filter day/week/month, tanggal, cabang, layanan, destinasi, customer type, dan kategori barang.
 
-Refresh database `logitrack_dw` → schema `public`. Tabel yang akan muncul:
+## 5. Cek Database Lewat Adminer
+
+Buka browser:
+
+```text
+http://localhost:8080
+```
+
+Login Adminer:
+
+```text
+System   : PostgreSQL
+Server   : db
+Username : admin
+Password : admin123
+Database : logitrack_dw
+```
+
+Catatan: di Adminer, `Server` pakai `db` karena Adminer dan PostgreSQL berjalan di network Docker yang sama. Untuk aplikasi Python/Streamlit, host tetap `127.0.0.1` dari `.env`.
+
+Tabel utama yang bisa dicek:
 
 - `fact_shipping`
 - `dim_time`
@@ -57,30 +127,16 @@ Refresh database `logitrack_dw` → schema `public`. Tabel yang akan muncul:
 - `etl_run_log`
 - `etl_step_log`
 
-## Catatan penting
-
-Mode default ETL adalah **full refresh**, jadi setiap run akan mengosongkan ulang tabel fact dan dimension agar data tidak dobel. Riwayat proses ETL tetap disimpan di `etl_run_log` dan `etl_step_log`.
-
-
-## Fix error `column "time_id" referenced in foreign key constraint does not exist`
-
-Error ini biasanya terjadi karena database PostgreSQL/DBeaver masih menyimpan tabel lama atau tabel `fact_shipping` sempat dibuat tidak lengkap. Versi `schema.sql` terbaru sudah bersifat reset-safe: semua tabel DW lama akan di-drop lalu dibuat ulang dengan kolom FK lengkap (`time_id`, `branch_id`, `service_id`, dan seterusnya).
-
-Jika error masih muncul, jalankan manual di DBeaver sebelum menjalankan Streamlit:
+Query cepat di Adminer:
 
 ```sql
-DROP TABLE IF EXISTS etl_step_log CASCADE;
-DROP TABLE IF EXISTS etl_run_log CASCADE;
-DROP TABLE IF EXISTS fact_shipping CASCADE;
-DROP TABLE IF EXISTS dim_time CASCADE;
-DROP TABLE IF EXISTS dim_service CASCADE;
-DROP TABLE IF EXISTS dim_destination CASCADE;
-DROP TABLE IF EXISTS dim_status CASCADE;
-DROP TABLE IF EXISTS dim_reason CASCADE;
-DROP TABLE IF EXISTS dim_branch CASCADE;
-DROP TABLE IF EXISTS dim_item CASCADE;
-DROP TABLE IF EXISTS dim_route CASCADE;
-DROP TABLE IF EXISTS dim_customer CASCADE;
+SELECT COUNT(*) FROM fact_shipping;
+
+SELECT *
+FROM etl_run_log
+ORDER BY run_id DESC;
 ```
 
-Setelah itu klik ulang tombol **Generate + ETL** di dashboard.
+## Catatan Workflow
+
+File raw yang berhasil diproses ETL akan dipindahkan ke folder `processed/`. Halaman `ETL Operations` hanya menjalankan ETL jika ada raw CSV valid di folder `raw/`, sehingga file lama yang sudah selesai tidak diproses dua kali.

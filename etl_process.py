@@ -11,22 +11,38 @@ from typing import Callable, Optional
 import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, URL
 from dotenv import load_dotenv
 
-# Load file .env agar kredensial database tersembunyi
-load_dotenv()
+# Load file .env project agar konfigurasi lokal tidak kalah oleh environment global.
+load_dotenv(override=True)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 # Gunakan os.getenv dengan fallback default agar anti-error
 DB_USER = os.getenv('DB_USER', 'admin')
 DB_PASS = os.getenv('DB_PASS', 'admin123')
-DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_HOST = os.getenv('DB_HOST', '127.0.0.1')
 DB_PORT = os.getenv('DB_PORT', '5432')
 DB_NAME = os.getenv('DB_NAME', 'logitrack_dw')
 
-DEFAULT_DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+def _build_default_db_url() -> str:
+    explicit_url = os.getenv("LOGITRACK_DB_URL")
+    if explicit_url:
+        return explicit_url
+
+    return URL.create(
+        "postgresql+psycopg2",
+        username=DB_USER,
+        password=DB_PASS,
+        host=DB_HOST,
+        port=DB_PORT,
+        database=DB_NAME,
+    ).render_as_string(hide_password=False)
+
+
+DEFAULT_DB_URL = _build_default_db_url()
 DEFAULT_SCHEMA_PATH = SCRIPT_DIR / "schema.sql"
 DEFAULT_RAW_DIR = SCRIPT_DIR / "raw"
 DEFAULT_PROCESSED_DIR = SCRIPT_DIR / "processed"
@@ -536,7 +552,7 @@ class LogiTrackETL:
             self._emit(f"File raw mentah otomatis dipindahkan ke: {processed_raw_path}")
             # ---------------------------------------------------------------
 
-            self._emit("ETL PROCESS COMPLETE. Data Warehouse siap digunakan di dashboard dan DBeaver.")
+            self._emit("ETL PROCESS COMPLETE. Data Warehouse siap digunakan di dashboard dan Adminer.")
             return {
                 "run_id": self.run_id,
                 "status": "SUCCESS",

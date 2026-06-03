@@ -123,7 +123,7 @@ CREATE TABLE fact_shipping (
     CONSTRAINT fk_fact_reason FOREIGN KEY (reason_id) REFERENCES dim_reason(reason_id)
 );
 
--- Metadata ETL agar prosesnya terlihat di dashboard dan DBeaver.
+-- Metadata ETL 
 CREATE TABLE etl_run_log (
     run_id BIGSERIAL PRIMARY KEY,
     source_file TEXT,
