@@ -14,10 +14,13 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, URL
 from dotenv import load_dotenv
 
+from utils.dataset_naming import next_raw_batch_path
+
 # Load file .env project agar konfigurasi lokal tidak kalah oleh environment global.
 load_dotenv(override=True)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
 
 # Gunakan os.getenv dengan fallback default agar anti-error
 DB_USER = os.getenv('DB_USER', 'admin')
@@ -43,10 +46,12 @@ def _build_default_db_url() -> str:
 
 
 DEFAULT_DB_URL = _build_default_db_url()
-DEFAULT_SCHEMA_PATH = SCRIPT_DIR / "schema.sql"
-DEFAULT_RAW_DIR = SCRIPT_DIR / "raw"
-DEFAULT_PROCESSED_DIR = SCRIPT_DIR / "processed"
-
+DEFAULT_SCHEMA_PATH = PROJECT_ROOT / "schema.sql"
+DEFAULT_DATASET_DIR = PROJECT_ROOT / "dataset"
+DEFAULT_BASELINE_DIR = DEFAULT_DATASET_DIR / "baseline"
+DEFAULT_DYNAMIC_DIR = DEFAULT_DATASET_DIR / "dynamic"
+DEFAULT_RAW_DIR = DEFAULT_DYNAMIC_DIR / "raw"
+DEFAULT_PROCESSED_DIR = DEFAULT_DYNAMIC_DIR / "processed"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -78,6 +83,27 @@ def find_latest_raw_csv(raw_dir: str | Path = DEFAULT_RAW_DIR) -> Optional[Path]
     raw_dir = Path(raw_dir)
     candidates = sorted(raw_dir.glob("raw_nasional_logistics_data_*.csv"), key=lambda path: path.stat().st_mtime, reverse=True)
     return candidates[0].resolve() if candidates else None
+
+
+def find_baseline_csv(baseline_dir: str | Path = DEFAULT_BASELINE_DIR) -> Optional[Path]:
+    baseline_dir = Path(baseline_dir)
+    candidates = sorted(baseline_dir.glob("raw_nasional_logistics_data*.csv"), key=lambda path: path.name)
+    return candidates[0].resolve() if candidates else None
+
+
+def stage_baseline_csv(
+    baseline_file: str | Path | None = None,
+    raw_dir: str | Path = DEFAULT_RAW_DIR,
+) -> Path:
+    source = Path(baseline_file).resolve() if baseline_file else find_baseline_csv()
+    if source is None or not source.exists():
+        raise FileNotFoundError("Dataset baseline tidak ditemukan di folder dataset/baseline.")
+
+    raw_dir = Path(raw_dir).resolve()
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    target = next_raw_batch_path(raw_dir, DEFAULT_PROCESSED_DIR, source_label="baseline")
+    shutil.copy2(source, target)
+    return target.resolve()
 
 
 class LogiTrackETL:
@@ -569,7 +595,8 @@ class LogiTrackETL:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run ETL pipeline from raw CSV into PostgreSQL data warehouse.")
-    parser.add_argument("--file", default=None, help="Path CSV raw. Jika kosong, ETL mengambil CSV terbaru di data/raw.")
+    parser.add_argument("--file", default=None, help="Path CSV raw. Jika kosong, ETL mengambil CSV terbaru di dataset/dynamic/raw.")
+    parser.add_argument("--baseline", action="store_true", help="Stage dataset baseline statis ke dataset/dynamic/raw sebelum ETL.")
     parser.add_argument("--db-url", default=DEFAULT_DB_URL, help="PostgreSQL URL.")
     parser.add_argument("--append", action="store_true", help="Append data tanpa TRUNCATE warehouse. Default: full refresh.")
     return parser.parse_args()
@@ -577,9 +604,12 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
-    csv_file = Path(args.file).resolve() if args.file else find_latest_raw_csv()
+    if args.baseline:
+        csv_file = stage_baseline_csv()
+    else:
+        csv_file = Path(args.file).resolve() if args.file else find_latest_raw_csv()
     if csv_file is None:
-        raise FileNotFoundError("Tidak ada raw_nasional_logistics_data_*.csv di folder raw.")
+        raise FileNotFoundError("Tidak ada raw_nasional_logistics_data_*.csv di folder dataset/dynamic/raw.")
     etl = LogiTrackETL(file_path=csv_file, db_url=args.db_url, refresh_warehouse=not args.append)
     result = etl.run_full_pipeline()
     print(result)

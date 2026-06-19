@@ -7,9 +7,15 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-RAW_DIR = SCRIPT_DIR / "raw"
+from utils.dataset_naming import next_raw_batch_path
+
+SCRIPT_DIR = Path(__file__).resolve().parent.parent
+DATASET_DIR = SCRIPT_DIR / "dataset"
+DYNAMIC_DIR = DATASET_DIR / "dynamic"
+RAW_DIR = DYNAMIC_DIR / "raw"
+PROCESSED_DIR = DYNAMIC_DIR / "processed"
 RAW_DIR.mkdir(parents=True, exist_ok=True)
+PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 fake = Faker("id_ID")
 
@@ -78,6 +84,15 @@ PEAK_MONTH_WEIGHTS = {
     10: 1.8,
     11: 3.2,
     12: 3.5,
+}
+
+DEFAULT_DIRTY_RATES = {
+    "missing_phone": 0.020,
+    "missing_zip": 0.015,
+    "negative_weight": 0.006,
+    "negative_cost": 0.006,
+    "messy_branch": 0.004,
+    "duplicate_rows": 0.004,
 }
 
 
@@ -159,25 +174,34 @@ def _delay_reason(is_peak: bool, destination: dict[str, Any], transit_point: str
     return labels[int(rng.choice(len(labels), p=weights))]
 
 
-def _inject_dirty_data(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+def _inject_dirty_data(
+    df: pd.DataFrame,
+    rng: np.random.Generator,
+    dirty_rates: dict[str, float] | None = None,
+) -> pd.DataFrame:
     if df.empty:
         return df
 
     dirty_df = df.copy()
+    rates = {**DEFAULT_DIRTY_RATES, **(dirty_rates or {})}
 
     def sample_index(frac: float) -> pd.Index:
+        if frac <= 0:
+            return pd.Index([])
         size = max(1, int(len(dirty_df) * frac))
         return dirty_df.sample(n=size, random_state=int(rng.integers(0, 1_000_000))).index
 
-    dirty_df.loc[sample_index(0.020), "Customer_Phone"] = np.nan
-    dirty_df.loc[sample_index(0.015), "Dest_ZIP"] = np.nan
-    dirty_df.loc[sample_index(0.006), "Weight_Kg"] = -1
-    dirty_df.loc[sample_index(0.006), "Shipping_Cost"] = -150000
-    dirty_df.loc[sample_index(0.004), "Branch_Name"] = "  " + dirty_df["Branch_Name"].astype(str).str.lower() + "  "
+    dirty_df.loc[sample_index(rates["missing_phone"]), "Customer_Phone"] = np.nan
+    dirty_df.loc[sample_index(rates["missing_zip"]), "Dest_ZIP"] = np.nan
+    dirty_df.loc[sample_index(rates["negative_weight"]), "Weight_Kg"] = -1
+    dirty_df.loc[sample_index(rates["negative_cost"]), "Shipping_Cost"] = -150000
+    messy_index = sample_index(rates["messy_branch"])
+    dirty_df.loc[messy_index, "Branch_Name"] = "  " + dirty_df.loc[messy_index, "Branch_Name"].astype(str).str.lower() + "  "
 
-    duplicate_count = max(1, int(len(dirty_df) * 0.004))
-    duplicates = dirty_df.sample(n=duplicate_count, random_state=int(rng.integers(0, 1_000_000))).copy()
-    dirty_df = pd.concat([dirty_df, duplicates], ignore_index=True)
+    duplicate_count = int(len(dirty_df) * rates["duplicate_rows"])
+    if duplicate_count > 0:
+        duplicates = dirty_df.sample(n=duplicate_count, random_state=int(rng.integers(0, 1_000_000))).copy()
+        dirty_df = pd.concat([dirty_df, duplicates], ignore_index=True)
 
     return dirty_df.sample(frac=1, random_state=int(rng.integers(0, 1_000_000))).reset_index(drop=True)
 
@@ -188,6 +212,7 @@ def generate_dataset(
     end_date: date | datetime | str | None = None,
     seed: int | None = None,
     inject_dirty: bool = True,
+    dirty_rates: dict[str, float] | None = None,
 ) -> str:
     start = _as_date(start_date, DEFAULT_START_DATE)
     end = _as_date(end_date, DEFAULT_END_DATE)
@@ -198,8 +223,7 @@ def generate_dataset(
     fake.unique.clear()
 
     date_values, date_weights = _date_pool(start, end)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = RAW_DIR / f"raw_nasional_logistics_data_{timestamp}.csv"
+    output_file = next_raw_batch_path(RAW_DIR, PROCESSED_DIR)
     data = []
 
     for _ in range(num_rows):
@@ -280,7 +304,7 @@ def generate_dataset(
 
     df = pd.DataFrame(data)
     if inject_dirty:
-        df = _inject_dirty_data(df, rng)
+        df = _inject_dirty_data(df, rng, dirty_rates=dirty_rates)
 
     df.to_csv(output_file, index=False)
     print(f"Data generated at: {output_file}")
