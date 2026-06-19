@@ -3,8 +3,16 @@ LogiTrack_DB/
 pgdata/
 data_db/
 
-# Jangan upload file CSV mentah (biasanya terlalu besar untuk GitHub)
+# Jangan upload file CSV mentah/dinamis (biasanya terlalu besar untuk GitHub)
 *.csv
+!dataset/
+!dataset/baseline/
+!dataset/baseline/*.csv
+!dataset/dynamic/
+!dataset/dynamic/raw/
+!dataset/dynamic/processed/
+!dataset/dynamic/raw/.gitkeep
+!dataset/dynamic/processed/.gitkeep
 
 # File log dan environment rahasia
 .env

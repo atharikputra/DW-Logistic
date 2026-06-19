@@ -5,10 +5,10 @@ services:
     restart: always
     environment:
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin123  
+      POSTGRES_PASSWORD: "admin123"
       POSTGRES_DB: logitrack_dw
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - ./data_db:/var/lib/postgresql
   adminer:
