@@ -4,11 +4,17 @@ Project tugas akhir Data Warehouse untuk simulasi performa pengiriman logistik. 
 
 ## Struktur Utama
 
-- `generate_data.py`: membuat raw CSV dummy ke folder `raw/`.
+- `dataset/baseline/`: dataset statis sebagai baseline/acuan demo dan validasi.
+- `dataset/dynamic/raw/`: raw CSV dinamis hasil generate harian yang siap diproses ETL.
+- `dataset/dynamic/processed/`: arsip raw dan clean CSV setelah ETL selesai.
+- `generate_data.py`: membuat raw CSV dummy ke folder `dataset/dynamic/raw/`.
 - `etl_process.py`: ETL core dari raw CSV ke PostgreSQL star schema.
-- `pages/etl_operations.py`: halaman Streamlit untuk generate raw data, run ETL, dan audit log.
-- `pages/delivery_analytics.py`: dashboard manajerial untuk SLA, cabang, rute, destinasi, customer, item, dan root cause delay.
+- `pages/01_Data_Operations.py`: halaman Streamlit untuk generate raw data, run ETL, dan ringkasan audit.
+- `pages/02_Analytics.py`: dashboard manajerial untuk SLA, cabang, rute, destinasi, customer, item, dan root cause delay.
+- `pages/03_Data_Warehouse_Detail.py`: halaman eksplorasi star schema dan preview tabel warehouse.
+- `pages/04_ETL_Audit_Log.py`: halaman timeline run ETL dan detail step pipeline.
 - `utils/queries.py`: query analytics agar halaman visual tidak bercampur dengan SQL.
+- `utils/ui.py`: helper custom CSS dan komponen visual reusable.
 - `schema.sql`: definisi fact table, dimension table, dan ETL log.
 - `docker-compose.yml`: menjalankan PostgreSQL dan Adminer.
 
@@ -54,7 +60,7 @@ Default koneksi aplikasi ke PostgreSQL:
 
 ```text
 Host     : 127.0.0.1
-Port     : 5432
+Port     : 5433
 Database : logitrack_dw
 User     : admin
 Password : admin123
@@ -85,12 +91,13 @@ streamlit run app.py
 
 Alur demo yang disarankan:
 
-1. Buka halaman `ETL Operations`.
+1. Buka halaman `Data Operations`.
 2. Set jumlah data, rentang tanggal, seed opsional, dan opsi dirty data.
-3. Klik `Generate Raw Data`.
+3. Klik `Generate Raw Data` untuk mensimulasikan batch data operasional harian baru.
 4. Klik `Run ETL Pipeline`.
-5. Buka halaman `Delivery Analytics`.
-6. Gunakan filter day/week/month, tanggal, cabang, layanan, destinasi, customer type, dan kategori barang.
+5. Buka halaman `Data Warehouse Detail` atau `ETL Audit Log` untuk memeriksa hasil load dan riwayat pipeline.
+6. Buka halaman `Analytics`.
+7. Gunakan filter day/week/month, tanggal, cabang, layanan, destinasi, customer type, dan kategori barang.
 
 ## 5. Cek Database Lewat Adminer
 
@@ -110,7 +117,7 @@ Password : admin123
 Database : logitrack_dw
 ```
 
-Catatan: di Adminer, `Server` pakai `db` karena Adminer dan PostgreSQL berjalan di network Docker yang sama. Untuk aplikasi Python/Streamlit, host tetap `127.0.0.1` dari `.env`.
+Catatan: di Adminer, `Server` pakai `db` karena Adminer dan PostgreSQL berjalan di network Docker yang sama. Untuk aplikasi Python/Streamlit, host tetap `127.0.0.1` dari `.env` dan port host memakai `5433` agar tidak bentrok dengan PostgreSQL lokal.
 
 Tabel utama yang bisa dicek:
 
@@ -139,4 +146,9 @@ ORDER BY run_id DESC;
 
 ## Catatan Workflow
 
-File raw yang berhasil diproses ETL akan dipindahkan ke folder `processed/`. Halaman `ETL Operations` hanya menjalankan ETL jika ada raw CSV valid di folder `raw/`, sehingga file lama yang sudah selesai tidak diproses dua kali.
+Project ini membedakan dua jenis dataset:
+
+- **Data dinamis**: berada di `dataset/dynamic/raw/`. File ini dibuat oleh generator untuk mensimulasikan data operasional harian yang bisa berubah dari waktu ke waktu. Format namanya `raw_nasional_logistics_data_YYYYMMDD_batch001.csv`, lalu batch berikutnya pada tanggal yang sama menjadi `batch002`, `batch003`, dan seterusnya.
+- **Baseline statis**: berada di `dataset/baseline/`. File ini tidak berubah otomatis dan hanya dipakai sebagai acuan demo ulang atau pembanding bila butuh hasil yang konsisten.
+
+File raw dinamis yang berhasil diproses ETL akan dipindahkan ke folder `dataset/dynamic/processed/`. Halaman `Data Operations` hanya menjalankan ETL jika ada raw CSV valid di folder `dataset/dynamic/raw/`, sehingga file lama yang sudah selesai tidak diproses dua kali.
