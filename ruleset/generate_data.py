@@ -130,6 +130,45 @@ def _choice(rng: np.random.Generator, items: list[dict[str, Any]], weights: list
     return items[int(rng.choice(len(items), p=probabilities))]
 
 
+def _batch_distribution(
+    rng: np.random.Generator,
+    base_weights: list[float],
+    concentration: float,
+    variability: float = 0.65,
+) -> list[float]:
+    """Create a plausible but visibly different mix for each generated batch.
+
+    Sampling every row from one fixed distribution makes large datasets look
+    almost identical because the observed shares converge to the same values.
+    A Dirichlet draw gives each batch its own operating mix, while blending it
+    with the baseline keeps small destinations and segments represented.
+    """
+    base = np.asarray(base_weights, dtype=float)
+    base = base / base.sum()
+    alpha = np.maximum(base * concentration, 0.35)
+    sampled = rng.dirichlet(alpha)
+    mixed = ((1.0 - variability) * base) + (variability * sampled)
+    return (mixed / mixed.sum()).tolist()
+
+
+def _batch_risk_offsets(
+    rng: np.random.Generator,
+    size: int,
+    hotspot_range: tuple[float, float],
+    noise_std: float,
+) -> np.ndarray:
+    """Model temporary operational shocks so the priority area can move."""
+    offsets = rng.normal(0.0, noise_std, size=size)
+    hotspot_index = int(rng.integers(0, size))
+    offsets[hotspot_index] += float(rng.uniform(*hotspot_range))
+
+    if size > 1:
+        recovery_candidates = [index for index in range(size) if index != hotspot_index]
+        recovery_index = int(rng.choice(recovery_candidates))
+        offsets[recovery_index] -= float(rng.uniform(0.015, 0.045))
+    return offsets
+
+
 def _route_zone(branch: dict[str, Any], destination: dict[str, Any]) -> int:
     if branch["city"] == destination["city"]:
         return 1
@@ -159,7 +198,13 @@ def _shipping_cost(service: dict[str, Any], weight_kg: float, zone: int, fragile
     return int(max(9000, round(raw_cost / 500) * 500))
 
 
-def _delay_reason(is_peak: bool, destination: dict[str, Any], transit_point: str | None, rng: np.random.Generator) -> str:
+def _delay_reason(
+    is_peak: bool,
+    destination: dict[str, Any],
+    transit_point: str | None,
+    rng: np.random.Generator,
+    batch_multipliers: np.ndarray | None = None,
+) -> str:
     reasons = [
         ("Gudang Overload", 0.36 if is_peak else 0.12),
         ("Kendala Armada", 0.18),
@@ -170,6 +215,8 @@ def _delay_reason(is_peak: bool, destination: dict[str, Any], transit_point: str
     ]
     labels = [label for label, _ in reasons]
     weights = np.array([weight for _, weight in reasons], dtype=float)
+    if batch_multipliers is not None:
+        weights *= batch_multipliers
     weights = weights / weights.sum()
     return labels[int(rng.choice(len(labels), p=weights))]
 
@@ -226,12 +273,61 @@ def generate_dataset(
     output_file = next_raw_batch_path(RAW_DIR, PROCESSED_DIR)
     data = []
 
+    # Give every generated batch a distinct, internally consistent operating
+    # scenario. This variation remains visible even with 15k+ rows.
+    branch_weights = _batch_distribution(
+        rng,
+        BRANCH_WEIGHTS,
+        concentration=6,
+        variability=0.80,
+    )
+    service_weights = _batch_distribution(rng, SERVICE_WEIGHTS, concentration=30, variability=0.50)
+    destination_weights = _batch_distribution(
+        rng,
+        [float(destination["weight"]) for destination in DESTINATIONS],
+        concentration=12,
+        variability=0.75,
+    )
+    customer_weights = _batch_distribution(
+        rng,
+        [float(customer["weight"]) for customer in CUSTOMER_TYPES],
+        concentration=30,
+        variability=0.50,
+    )
+    item_weights = _batch_distribution(rng, ITEM_WEIGHTS, concentration=40, variability=0.50)
+
+    branch_risk_offsets = _batch_risk_offsets(rng, len(BRANCHES), (0.07, 0.15), 0.018)
+    destination_risk_offsets = _batch_risk_offsets(rng, len(DESTINATIONS), (0.08, 0.18), 0.025)
+    service_risk_offsets = _batch_risk_offsets(rng, len(SERVICES), (0.025, 0.075), 0.012)
+    customer_risk_offsets = _batch_risk_offsets(rng, len(CUSTOMER_TYPES), (0.02, 0.06), 0.010)
+    item_risk_offsets = _batch_risk_offsets(rng, len(ITEM_CATEGORIES), (0.025, 0.075), 0.012)
+
+    branch_risk_by_code = {
+        branch["code"]: float(branch_risk_offsets[index]) for index, branch in enumerate(BRANCHES)
+    }
+    destination_risk_by_city = {
+        destination["city"]: float(destination_risk_offsets[index])
+        for index, destination in enumerate(DESTINATIONS)
+    }
+    service_risk_by_type = {
+        service["type"]: float(service_risk_offsets[index]) for index, service in enumerate(SERVICES)
+    }
+    customer_risk_by_type = {
+        customer["type"]: float(customer_risk_offsets[index])
+        for index, customer in enumerate(CUSTOMER_TYPES)
+    }
+    item_risk_by_name = {
+        item["name"]: float(item_risk_offsets[index]) for index, item in enumerate(ITEM_CATEGORIES)
+    }
+    delay_reason_multipliers = rng.lognormal(mean=0.0, sigma=0.55, size=6)
+    batch_global_risk = float(rng.uniform(-0.025, 0.045))
+
     for _ in range(num_rows):
-        branch = _choice(rng, BRANCHES, BRANCH_WEIGHTS)
-        service = _choice(rng, SERVICES, SERVICE_WEIGHTS)
-        destination = _choice(rng, DESTINATIONS)
-        customer = _choice(rng, CUSTOMER_TYPES)
-        item = _choice(rng, ITEM_CATEGORIES, ITEM_WEIGHTS)
+        branch = _choice(rng, BRANCHES, branch_weights)
+        service = _choice(rng, SERVICES, service_weights)
+        destination = _choice(rng, DESTINATIONS, destination_weights)
+        customer = _choice(rng, CUSTOMER_TYPES, customer_weights)
+        item = _choice(rng, ITEM_CATEGORIES, item_weights)
         shipping_date = date_values[int(rng.choice(len(date_values), p=date_weights))]
 
         peak_season = shipping_date.month in {10, 11, 12}
@@ -248,6 +344,12 @@ def generate_dataset(
             + destination["risk"]
             + item["risk"]
             + customer["risk"]
+            + branch_risk_by_code[branch["code"]]
+            + destination_risk_by_city[destination["city"]]
+            + service_risk_by_type[service["type"]]
+            + customer_risk_by_type[customer["type"]]
+            + item_risk_by_name[item["name"]]
+            + batch_global_risk
             + (0.11 if peak_season else 0.0)
             + (0.025 if fragile else 0.0)
             + (0.025 if weight_kg >= 10 else 0.0)
@@ -258,7 +360,13 @@ def generate_dataset(
         if is_late:
             actual_duration = service["sla"] + int(rng.integers(1, 5 + route_zone))
             shipping_status = rng.choice(["Delayed", "Failed", "Returned To Sender"], p=[0.72, 0.17, 0.11])
-            delay_reason = _delay_reason(peak_season, destination, transit_point, rng)
+            delay_reason = _delay_reason(
+                peak_season,
+                destination,
+                transit_point,
+                rng,
+                batch_multipliers=delay_reason_multipliers,
+            )
             delay_description = f"Kendala operasional: {delay_reason.lower()}."
         else:
             early_or_on_time = int(rng.choice([0, 0, 1], p=[0.55, 0.25, 0.20]))
