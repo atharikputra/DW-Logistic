@@ -1,4 +1,3 @@
-import random
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,8 +27,15 @@ BRANCHES = [
     {"code": "BDO-01", "name": "Hub Utama Bandung", "city": "Bandung", "province": "Jawa Barat", "island": "Java", "ops_risk": 0.012},
     {"code": "MDN-01", "name": "Hub Utama Medan", "city": "Medan", "province": "Sumatera Utara", "island": "Sumatra", "ops_risk": 0.025},
     {"code": "UPG-01", "name": "Hub Utama Makassar", "city": "Makassar", "province": "Sulawesi Selatan", "island": "Sulawesi", "ops_risk": 0.03},
+    {"code": "SMG-01", "name": "Hub Regional Semarang", "city": "Semarang", "province": "Jawa Tengah", "island": "Java", "ops_risk": 0.018},
+    {"code": "DPS-01", "name": "Hub Regional Denpasar", "city": "Denpasar", "province": "Bali", "island": "Bali", "ops_risk": 0.022},
+    {"code": "PLM-01", "name": "Hub Regional Palembang", "city": "Palembang", "province": "Sumatera Selatan", "island": "Sumatra", "ops_risk": 0.026},
+    {"code": "BPN-01", "name": "Hub Regional Balikpapan", "city": "Balikpapan", "province": "Kalimantan Timur", "island": "Kalimantan", "ops_risk": 0.032},
+    {"code": "PNK-01", "name": "Hub Regional Pontianak", "city": "Pontianak", "province": "Kalimantan Barat", "island": "Kalimantan", "ops_risk": 0.035},
+    {"code": "JOG-01", "name": "Hub Regional Yogyakarta", "city": "Yogyakarta", "province": "DI Yogyakarta", "island": "Java", "ops_risk": 0.016},
+    {"code": "MDC-01", "name": "Hub Regional Manado", "city": "Manado", "province": "Sulawesi Utara", "island": "Sulawesi", "ops_risk": 0.040},
 ]
-BRANCH_WEIGHTS = [0.42, 0.20, 0.16, 0.11, 0.11]
+BRANCH_WEIGHTS = [0.28, 0.14, 0.12, 0.08, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.03, 0.02]
 
 SERVICES = [
     {"type": "REG", "name": "Reguler", "sla": 3, "base_cost": 18000, "kg_cost": 3500, "risk": 0.10},
@@ -53,6 +59,24 @@ DESTINATIONS = [
     {"city": "Manado", "province": "Sulawesi Utara", "island": "Sulawesi", "zone": 4, "weight": 0.03, "risk": 0.075},
     {"city": "Ambon", "province": "Maluku", "island": "Maluku", "zone": 5, "weight": 0.02, "risk": 0.095},
     {"city": "Jayapura", "province": "Papua", "island": "Papua", "zone": 5, "weight": 0.02, "risk": 0.11},
+    {"city": "Bekasi", "province": "Jawa Barat", "island": "Java", "zone": 1, "weight": 0.07, "risk": 0.008},
+    {"city": "Malang", "province": "Jawa Timur", "island": "Java", "zone": 2, "weight": 0.05, "risk": 0.018},
+    {"city": "Cilegon", "province": "Banten", "island": "Java", "zone": 2, "weight": 0.025, "risk": 0.020},
+    {"city": "Pekanbaru", "province": "Riau", "island": "Sumatra", "zone": 3, "weight": 0.04, "risk": 0.038},
+    {"city": "Jambi", "province": "Jambi", "island": "Sumatra", "zone": 3, "weight": 0.025, "risk": 0.042},
+    {"city": "Bukittinggi", "province": "Sumatera Barat", "island": "Sumatra", "zone": 3, "weight": 0.018, "risk": 0.047},
+    {"city": "Pontianak", "province": "Kalimantan Barat", "island": "Kalimantan", "zone": 4, "weight": 0.032, "risk": 0.058},
+    {"city": "Banjarmasin", "province": "Kalimantan Selatan", "island": "Kalimantan", "zone": 4, "weight": 0.032, "risk": 0.055},
+    {"city": "Samarinda", "province": "Kalimantan Timur", "island": "Kalimantan", "zone": 4, "weight": 0.028, "risk": 0.060},
+    {"city": "Parepare", "province": "Sulawesi Selatan", "island": "Sulawesi", "zone": 4, "weight": 0.018, "risk": 0.068},
+    {"city": "Kendari", "province": "Sulawesi Tenggara", "island": "Sulawesi", "zone": 4, "weight": 0.020, "risk": 0.072},
+    {"city": "Palu", "province": "Sulawesi Tengah", "island": "Sulawesi", "zone": 4, "weight": 0.018, "risk": 0.075},
+    {"city": "Mataram", "province": "Nusa Tenggara Barat", "island": "Nusa Tenggara", "zone": 4, "weight": 0.025, "risk": 0.062},
+    {"city": "Kupang", "province": "Nusa Tenggara Timur", "island": "Nusa Tenggara", "zone": 5, "weight": 0.020, "risk": 0.085},
+    {"city": "Bau-Bau", "province": "Sulawesi Tenggara", "island": "Sulawesi", "zone": 5, "weight": 0.012, "risk": 0.090},
+    {"city": "Sorong", "province": "Papua Barat Daya", "island": "Papua", "zone": 5, "weight": 0.014, "risk": 0.105},
+    {"city": "Merauke", "province": "Papua Selatan", "island": "Papua", "zone": 5, "weight": 0.010, "risk": 0.120},
+    {"city": "Sabang", "province": "Aceh", "island": "Sumatra", "zone": 5, "weight": 0.010, "risk": 0.095},
 ]
 
 ITEM_CATEGORIES = [
@@ -106,18 +130,43 @@ def _as_date(value: date | datetime | str | None, default: date) -> date:
     return datetime.strptime(str(value), "%Y-%m-%d").date()
 
 
-def _date_pool(start_date: date, end_date: date) -> tuple[list[date], np.ndarray]:
+def _date_pool(
+    start_date: date,
+    end_date: date,
+    rng: np.random.Generator | None = None,
+) -> tuple[list[date], np.ndarray]:
     if end_date < start_date:
         raise ValueError("end_date tidak boleh lebih awal dari start_date.")
 
     days = (end_date - start_date).days + 1
     dates = [start_date + timedelta(days=offset) for offset in range(days)]
+    month_factors = np.ones(12, dtype=float)
+    campaign_days: set[int] = set()
+    if rng is not None:
+        # Each batch represents a different demand window: campaign months,
+        # payday intensity, and seasonal noise change without ignoring the
+        # realistic year-end peak entirely.
+        month_factors = rng.lognormal(mean=0.0, sigma=0.75, size=12)
+        active_months = sorted({value.month for value in dates})
+        campaign_count = min(len(active_months), int(rng.integers(1, 4)))
+        campaign_months = rng.choice(active_months, size=campaign_count, replace=False)
+        for month in np.atleast_1d(campaign_months):
+            month_factors[int(month) - 1] *= float(rng.uniform(2.0, 5.5))
+        campaign_days = set(int(value) for value in rng.choice(np.arange(1, 29), size=3, replace=False))
+
     weights = []
     for value in dates:
         month_weight = PEAK_MONTH_WEIGHTS.get(value.month, 1.0)
         weekend_weight = 1.12 if value.weekday() >= 5 else 1.0
         payday_weight = 1.15 if value.day in {25, 26, 27, 28} else 1.0
-        weights.append(month_weight * weekend_weight * payday_weight)
+        campaign_weight = 1.8 if value.day in campaign_days else 1.0
+        weights.append(
+            month_weight
+            * float(month_factors[value.month - 1])
+            * weekend_weight
+            * payday_weight
+            * campaign_weight
+        )
     weights_array = np.array(weights, dtype=float)
     return dates, weights_array / weights_array.sum()
 
@@ -135,6 +184,7 @@ def _batch_distribution(
     base_weights: list[float],
     concentration: float,
     variability: float = 0.65,
+    min_alpha: float = 0.35,
 ) -> list[float]:
     """Create a plausible but visibly different mix for each generated batch.
 
@@ -145,7 +195,7 @@ def _batch_distribution(
     """
     base = np.asarray(base_weights, dtype=float)
     base = base / base.sum()
-    alpha = np.maximum(base * concentration, 0.35)
+    alpha = np.maximum(base * concentration, min_alpha)
     sampled = rng.dirichlet(alpha)
     mixed = ((1.0 - variability) * base) + (variability * sampled)
     return (mixed / mixed.sum()).tolist()
@@ -156,14 +206,17 @@ def _batch_risk_offsets(
     size: int,
     hotspot_range: tuple[float, float],
     noise_std: float,
+    hotspot_count: int = 1,
 ) -> np.ndarray:
     """Model temporary operational shocks so the priority area can move."""
     offsets = rng.normal(0.0, noise_std, size=size)
-    hotspot_index = int(rng.integers(0, size))
-    offsets[hotspot_index] += float(rng.uniform(*hotspot_range))
+    hotspot_count = max(1, min(int(hotspot_count), size))
+    hotspot_indices = np.atleast_1d(rng.choice(size, size=hotspot_count, replace=False)).astype(int)
+    for hotspot_index in hotspot_indices:
+        offsets[hotspot_index] += float(rng.uniform(*hotspot_range))
 
-    if size > 1:
-        recovery_candidates = [index for index in range(size) if index != hotspot_index]
+    if size > hotspot_count:
+        recovery_candidates = [index for index in range(size) if index not in set(hotspot_indices)]
         recovery_index = int(rng.choice(recovery_candidates))
         offsets[recovery_index] -= float(rng.uniform(0.015, 0.045))
     return offsets
@@ -189,12 +242,29 @@ def _transit_point(branch: dict[str, Any], destination: dict[str, Any], rng: np.
     return rng.choice(["CGK", "SUB", "UPG", None], p=[0.45, 0.25, 0.15, 0.15])
 
 
-def _shipping_cost(service: dict[str, Any], weight_kg: float, zone: int, fragile: bool, peak: bool, rng: np.random.Generator) -> int:
+def _shipping_cost(
+    service: dict[str, Any],
+    weight_kg: float,
+    zone: int,
+    fragile: bool,
+    peak: bool,
+    rng: np.random.Generator,
+    batch_cost_multiplier: float = 1.0,
+    fuel_surcharge: int = 0,
+) -> int:
     zone_surcharge = {1: 0, 2: 8000, 3: 18000, 4: 32000, 5: 52000}[zone]
     fragile_surcharge = 6000 if fragile else 0
     peak_surcharge = 5000 if peak else 0
     noise = rng.normal(0, 2500)
-    raw_cost = service["base_cost"] + service["kg_cost"] * weight_kg + zone_surcharge + fragile_surcharge + peak_surcharge + noise
+    raw_cost = (
+        service["base_cost"]
+        + service["kg_cost"] * weight_kg
+        + zone_surcharge
+        + fragile_surcharge
+        + peak_surcharge
+        + fuel_surcharge
+        + noise
+    ) * batch_cost_multiplier
     return int(max(9000, round(raw_cost / 500) * 500))
 
 
@@ -264,43 +334,86 @@ def generate_dataset(
     start = _as_date(start_date, DEFAULT_START_DATE)
     end = _as_date(end_date, DEFAULT_END_DATE)
     rng = np.random.default_rng(seed)
-    py_random = random.Random(seed)
     if seed is not None:
         fake.seed_instance(seed)
     fake.unique.clear()
 
-    date_values, date_weights = _date_pool(start, end)
+    date_values, date_weights = _date_pool(start, end, rng=rng)
     output_file = next_raw_batch_path(RAW_DIR, PROCESSED_DIR)
     data = []
 
-    # Give every generated batch a distinct, internally consistent operating
-    # scenario. This variation remains visible even with 15k+ rows.
+    # Pick a coherent regional demand story for this batch. Branches and
+    # destinations in the same focus region rise together, instead of every
+    # column being randomized independently without business meaning.
+    focus_island = str(rng.choice(sorted({branch["island"] for branch in BRANCHES})))
+    disrupted_island = str(rng.choice(sorted({destination["island"] for destination in DESTINATIONS})))
+    focus_zone = int(rng.integers(1, 6))
+    regional_demand_boost = float(rng.uniform(2.2, 5.0))
+    zone_demand_boost = float(rng.uniform(1.3, 2.8))
+    focus_destination_candidates = [
+        destination for destination in DESTINATIONS if destination["island"] == focus_island
+    ]
+    focus_destination = _choice(rng, focus_destination_candidates)
+    focus_destination_city = str(focus_destination["city"])
+    city_demand_boost = float(rng.uniform(3.5, 8.0))
+
+    branch_base_weights = [
+        float(weight) * (regional_demand_boost if branch["island"] == focus_island else 1.0)
+        for branch, weight in zip(BRANCHES, BRANCH_WEIGHTS)
+    ]
+    destination_base_weights = [
+        float(destination["weight"])
+        * (regional_demand_boost if destination["island"] == focus_island else 1.0)
+        * (zone_demand_boost if int(destination["zone"]) == focus_zone else 1.0)
+        * (city_demand_boost if destination["city"] == focus_destination_city else 1.0)
+        for destination in DESTINATIONS
+    ]
+
+    # Give every generated batch a distinct operating mix. Low concentration
+    # makes the selected mix visibly different; baseline blending keeps it
+    # plausible and prevents categories from disappearing completely.
     branch_weights = _batch_distribution(
         rng,
-        BRANCH_WEIGHTS,
-        concentration=6,
-        variability=0.80,
+        branch_base_weights,
+        concentration=3.5,
+        variability=0.92,
+        min_alpha=0.15,
     )
-    service_weights = _batch_distribution(rng, SERVICE_WEIGHTS, concentration=30, variability=0.50)
+    service_weights = _batch_distribution(rng, SERVICE_WEIGHTS, concentration=3.5, variability=0.92)
     destination_weights = _batch_distribution(
         rng,
-        [float(destination["weight"]) for destination in DESTINATIONS],
-        concentration=12,
-        variability=0.75,
+        destination_base_weights,
+        concentration=30,
+        variability=0.85,
+        min_alpha=0.08,
     )
     customer_weights = _batch_distribution(
         rng,
         [float(customer["weight"]) for customer in CUSTOMER_TYPES],
-        concentration=30,
-        variability=0.50,
+        concentration=4,
+        variability=0.88,
     )
-    item_weights = _batch_distribution(rng, ITEM_WEIGHTS, concentration=40, variability=0.50)
+    item_weights = _batch_distribution(rng, ITEM_WEIGHTS, concentration=6, variability=0.88)
 
-    branch_risk_offsets = _batch_risk_offsets(rng, len(BRANCHES), (0.07, 0.15), 0.018)
-    destination_risk_offsets = _batch_risk_offsets(rng, len(DESTINATIONS), (0.08, 0.18), 0.025)
-    service_risk_offsets = _batch_risk_offsets(rng, len(SERVICES), (0.025, 0.075), 0.012)
-    customer_risk_offsets = _batch_risk_offsets(rng, len(CUSTOMER_TYPES), (0.02, 0.06), 0.010)
-    item_risk_offsets = _batch_risk_offsets(rng, len(ITEM_CATEGORIES), (0.025, 0.075), 0.012)
+    branch_risk_offsets = _batch_risk_offsets(rng, len(BRANCHES), (0.08, 0.20), 0.030, hotspot_count=2)
+    destination_risk_offsets = _batch_risk_offsets(
+        rng,
+        len(DESTINATIONS),
+        (0.10, 0.24),
+        0.035,
+        hotspot_count=3,
+    )
+    service_risk_offsets = _batch_risk_offsets(rng, len(SERVICES), (0.04, 0.10), 0.020)
+    customer_risk_offsets = _batch_risk_offsets(rng, len(CUSTOMER_TYPES), (0.03, 0.08), 0.016)
+    item_risk_offsets = _batch_risk_offsets(rng, len(ITEM_CATEGORIES), (0.04, 0.10), 0.020, hotspot_count=2)
+
+    disruption_boost = float(rng.uniform(0.035, 0.11))
+    for index, branch in enumerate(BRANCHES):
+        if branch["island"] == disrupted_island:
+            branch_risk_offsets[index] += disruption_boost
+    for index, destination in enumerate(DESTINATIONS):
+        if destination["island"] == disrupted_island:
+            destination_risk_offsets[index] += disruption_boost
 
     branch_risk_by_code = {
         branch["code"]: float(branch_risk_offsets[index]) for index, branch in enumerate(BRANCHES)
@@ -319,8 +432,18 @@ def generate_dataset(
     item_risk_by_name = {
         item["name"]: float(item_risk_offsets[index]) for index, item in enumerate(ITEM_CATEGORIES)
     }
-    delay_reason_multipliers = rng.lognormal(mean=0.0, sigma=0.55, size=6)
-    batch_global_risk = float(rng.uniform(-0.025, 0.045))
+    delay_reason_multipliers = rng.lognormal(mean=0.0, sigma=1.05, size=6)
+    batch_global_risk = float(rng.uniform(-0.055, 0.105))
+    batch_cost_multiplier = float(rng.uniform(0.72, 1.48))
+    fuel_surcharge = int(rng.choice([0, 0, 2500, 5000, 7500, 10000, 15000, 20000]))
+    batch_weight_scale = float(np.clip(rng.lognormal(mean=0.0, sigma=0.42), 0.55, 1.85))
+    category_weight_scales = {
+        item["name"]: float(np.clip(batch_weight_scale * rng.lognormal(0.0, 0.22), 0.45, 2.20))
+        for item in ITEM_CATEGORIES
+    }
+    fragile_rate_shift = float(rng.uniform(-0.08, 0.14))
+    late_status_weights = _batch_distribution(rng, [0.72, 0.17, 0.11], concentration=7, variability=0.72)
+    success_status_weights = _batch_distribution(rng, [0.94, 0.06], concentration=8, variability=0.65)
 
     for _ in range(num_rows):
         branch = _choice(rng, BRANCHES, branch_weights)
@@ -332,11 +455,24 @@ def generate_dataset(
 
         peak_season = shipping_date.month in {10, 11, 12}
         weight_min, weight_max = item["weight_range"]
-        weight_kg = round(float(rng.uniform(weight_min, weight_max)), 2)
-        fragile = rng.random() < item["fragile_rate"]
+        weight_kg = round(
+            float(np.clip(rng.uniform(weight_min, weight_max) * category_weight_scales[item["name"]], 0.1, 30.0)),
+            2,
+        )
+        fragile_probability = float(np.clip(item["fragile_rate"] + fragile_rate_shift, 0.01, 0.85))
+        fragile = rng.random() < fragile_probability
         route_zone = _route_zone(branch, destination)
         transit_point = _transit_point(branch, destination, rng)
-        shipping_cost = _shipping_cost(service, weight_kg, route_zone, fragile, peak_season, rng)
+        shipping_cost = _shipping_cost(
+            service,
+            weight_kg,
+            route_zone,
+            fragile,
+            peak_season,
+            rng,
+            batch_cost_multiplier=batch_cost_multiplier,
+            fuel_surcharge=fuel_surcharge,
+        )
 
         delay_risk = (
             service["risk"]
@@ -359,7 +495,7 @@ def generate_dataset(
 
         if is_late:
             actual_duration = service["sla"] + int(rng.integers(1, 5 + route_zone))
-            shipping_status = rng.choice(["Delayed", "Failed", "Returned To Sender"], p=[0.72, 0.17, 0.11])
+            shipping_status = rng.choice(["Delayed", "Failed", "Returned To Sender"], p=late_status_weights)
             delay_reason = _delay_reason(
                 peak_season,
                 destination,
@@ -371,7 +507,7 @@ def generate_dataset(
         else:
             early_or_on_time = int(rng.choice([0, 0, 1], p=[0.55, 0.25, 0.20]))
             actual_duration = max(1, service["sla"] - early_or_on_time)
-            shipping_status = rng.choice(["Delivered", "In Transit"], p=[0.94, 0.06])
+            shipping_status = rng.choice(["Delivered", "In Transit"], p=success_status_weights)
             delay_reason = None
             delay_description = None
 
