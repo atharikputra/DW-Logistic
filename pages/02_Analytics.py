@@ -10,12 +10,9 @@ from ruleset.etl_process import get_default_db_url
 from ruleset.dss import (
     build_dss_ranking,
     evaluate_kpi_alerts,
+    format_route_entity,
     generate_executive_insights,
-    get_business_value_df,
-    get_delay_mcm,
     risk_label,
-    DELAY_REASON_MCM,
-    KPI_MONITORS,
 )
 from utils.ui import hero, load_css, metric_card
 from utils.queries import (
@@ -360,6 +357,10 @@ def readout_card(label: str, value: str, note: str, tone: str = "indigo") -> Non
     )
 
 
+def info_button_gap() -> None:
+    st.markdown('<div style="height: 12px;"></div>', unsafe_allow_html=True)
+
+
 def section_divider(icon: str, title: str, subtitle: str = "") -> None:
     sub_html = f'<div class="section-divider-sub">{_html.escape(subtitle)}</div>' if subtitle else ""
     st.markdown(
@@ -383,18 +384,6 @@ def exec_insight_card(title: str, body: str, tone: str = "indigo") -> None:
         <div class="exec-insight {_html.escape(tone)}">
             <div class="exec-insight-title">{_html.escape(title)}</div>
             <div class="exec-insight-body">{_html.escape(body)}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def mcm_card(phase: str, label: str, body: str) -> None:
-    st.markdown(
-        f"""
-        <div class="mcm-card {_html.escape(phase)}">
-            <div class="mcm-label">{_html.escape(label)}</div>
-            <div class="mcm-body">{_html.escape(body)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -487,37 +476,6 @@ def takeaway_banner(text: str) -> None:
     )
 
 
-def render_business_value_table(bv_df: pd.DataFrame) -> None:
-    rows_html = ""
-    for row in bv_df.itertuples(index=False):
-        rows_html += (
-            "<tr>"
-            f'<td class="bv-aspek">{_html.escape(str(row.aspek))}</td>'
-            f'<td class="bv-before">{_html.escape(str(row.before))}</td>'
-            f'<td class="bv-after">{_html.escape(str(row.after))}</td>'
-            f'<td class="bv-impact">{_html.escape(str(row.impact))}</td>'
-            "</tr>"
-        )
-    st.markdown(
-        f"""
-        <div class="bv-table-wrap">
-            <table class="bv-table">
-                <thead>
-                    <tr>
-                        <th>Aspek</th>
-                        <th>Before</th>
-                        <th>After</th>
-                        <th>Business Value Impact</th>
-                    </tr>
-                </thead>
-                <tbody>{rows_html}</tbody>
-            </table>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Page layout
 # ═══════════════════════════════════════════════════════════════════════════
@@ -600,14 +558,31 @@ late_tone = "green" if late_rate < 12 else "yellow" if late_rate < 25 else "red"
 on_time_tone = "green" if on_time_rate >= 90 else "yellow" if on_time_rate >= 75 else "red"
 dss_ranking = build_dss_ranking(branch_df, destination_df, route_df)
 top_dss = dss_ranking.iloc[0] if not dss_ranking.empty else None
-decision_status, decision_tone_color = risk_label(
+_priority_status, priority_tone_color = risk_label(
     float(top_dss["risk_score"]) if top_dss is not None else late_rate,
     dss_ranking["risk_score"] if not dss_ranking.empty else None,
 )
+area_late_rates = pd.concat(
+    [
+        pd.to_numeric(frame["late_rate"], errors="coerce")
+        for frame in (branch_df, destination_df, route_df)
+        if not frame.empty and "late_rate" in frame
+    ],
+    ignore_index=True,
+).dropna()
+decision_status, decision_tone_color = risk_label(late_rate, area_late_rates)
 worst_branch = branch_df.sort_values(["late_rate", "late_shipments"], ascending=False).iloc[0] if not branch_df.empty else None
 risky_dest = destination_df.iloc[0] if not destination_df.empty else None
 top_reason = delay_df.iloc[0] if not delay_df.empty else None
 top_route = route_df.iloc[0] if not route_df.empty else None
+total_late = int(kpis.get("total_late", 0) or 0)
+top_reason_count = int(top_reason["late_shipments"]) if top_reason is not None else 0
+top_reason_share = (top_reason_count / total_late * 100) if total_late else 0.0
+priority_note = (
+    f"{top_dss['area']} · {int(top_dss['late_shipments']):,} late · {float(top_dss['late_rate']):.1f}%"
+    if top_dss is not None
+    else "Belum ada ranking"
+)
 
 # ── Top KPI cards ──
 k1, k2, k3 = st.columns(3)
@@ -632,32 +607,82 @@ st.markdown(
     """
     <div class="dashboard-subcopy">
         Dashboard ini dibuat supaya pembaca bisa langsung melihat kondisi pengiriman, area yang perlu diprioritaskan,
-        penyebab keterlambatan, dan rekomendasi tindakan berbasis data warehouse.
+        penyebab keterlambatan, dan ranking risiko berbasis data warehouse.
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 st.subheader("Operational Readout")
-readout_cols = st.columns(4)
+readout_cols = st.columns(3)
 with readout_cols[0]:
     readout_card("Current SLA", f"{on_time_rate:.1f}%", "", on_time_tone)
+    info_button_gap()
+    with st.popover("ⓘ", help="Lihat sumber data dan cara hitung", key="readout_sla_info"):
+        st.markdown(
+            f"""
+            **Current SLA** menunjukkan persentase shipment yang tidak terlambat pada filter aktif.
+
+            `on-time shipment ÷ seluruh shipment × 100`
+
+            Dari **{int(kpis['total_volume']):,} shipment**, sebanyak
+            **{int(kpis['total_volume']) - total_late:,} shipment** tercatat on-time,
+            sehingga nilainya **{on_time_rate:.1f}%**.
+            """
+        )
 with readout_cols[1]:
     readout_card(
-        "Priority Area",
+        f"Priority {top_dss['area']}" if top_dss is not None else "Priority Area",
         str(top_dss["entity"]) if top_dss is not None else "-",
-        "",
-        decision_tone_color,
+        priority_note,
+        priority_tone_color,
     )
+    info_button_gap()
+    with st.popover("ⓘ", help="Lihat sumber data dan cara hitung", key="readout_priority_info"):
+        if top_dss is not None:
+            priority_scope = {
+                "Branch": "cabang asal",
+                "Destination": "kota tujuan",
+                "Route": "jalur pengiriman",
+            }.get(str(top_dss["area"]), "area operasional")
+            st.markdown(
+                f"""
+                Sistem membandingkan seluruh **{priority_scope}** pada filter aktif menggunakan:
+
+                - **50%** tingkat keterlambatan
+                - **30%** jumlah paket terlambat yang telah dinormalisasi
+                - **20%** rata-rata durasi yang telah dinormalisasi
+
+                **{top_dss['entity']}** terpilih dengan **risk score {float(top_dss['risk_score']):.1f}**:
+                {float(top_dss['late_rate']):.1f}% late rate,
+                {int(top_dss['late_shipments']):,} paket terlambat, dan
+                {float(top_dss['avg_duration']):.2f} hari rata-rata durasi.
+                """
+            )
+        else:
+            st.write("Ranking belum tersedia untuk filter aktif.")
 with readout_cols[2]:
     readout_card(
         "Main Cause",
         str(top_reason["reason_category"]) if top_reason is not None else "-",
-        "",
+        f"{top_reason_count:,} kasus · {top_reason_share:.1f}% dari delay" if top_reason is not None else "Belum ada delay",
         "yellow",
     )
-with readout_cols[3]:
-    readout_card("Best Next Step", decision_status, "", decision_tone_color)
+    info_button_gap()
+    with st.popover("ⓘ", help="Lihat sumber data dan cara hitung", key="readout_cause_info"):
+        if top_reason is not None:
+            st.markdown(
+                f"""
+                Sistem mengambil seluruh shipment **terlambat** pada filter aktif, lalu
+                mengelompokkannya berdasarkan kategori penyebab dan mengurutkan jumlah kasus terbesar.
+
+                **{top_reason['reason_category']}** berada di peringkat pertama dengan
+                **{top_reason_count:,} kasus**, atau **{top_reason_share:.1f}%** dari
+                total **{total_late:,} shipment terlambat**.
+                """
+            )
+        else:
+            st.write("Tidak ada shipment terlambat pada filter aktif.")
 
 st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
@@ -666,7 +691,7 @@ st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 # ═══════════════════════════════════════════════════════════════════════════
 
 tab_summary, tab_branch, tab_routes, tab_segments, tab_dss, tab_detail = st.tabs(
-    ["Executive Summary", "Branch KPI", "Routes & Root Cause", "Customer & Item", "DSS Recommendation", "Shipment Detail"]
+    ["Executive Summary", "Branch KPI", "Routes & Root Cause", "Customer & Item", "DSS Analysis", "Shipment Detail"]
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -768,31 +793,25 @@ with tab_summary:
         else:
             st.success("Tidak ada keterlambatan pada filter ini.")
 
-    # ── Delay reason actionable cards ──
+    # Root-cause detection is a direct aggregation from the active data.
     if not delay_df.empty:
-        section_divider("🎯", "Actionable Root Cause Analysis", "Setiap penyebab delay disertai rekomendasi aksi menggunakan framework Manage-Control-Measure")
-
-        for row in delay_df.head(5).itertuples(index=False):
-            reason_name = str(row.reason_category)
-            reason_count = int(row.late_shipments)
-            mcm = get_delay_mcm(reason_name)
-
-            st.markdown(
-                f"""
-                <div class="reason-cause-card">
-                    <div class="reason-cause-header">
-                        <div class="reason-cause-name">🔴 {_html.escape(reason_name)}</div>
-                        <div class="reason-cause-count">{reason_count:,} kasus keterlambatan</div>
-                    </div>
-                    <div class="reason-cause-action">
-                        <strong>Manage:</strong> {_html.escape(mcm['manage'].split('.')[0])}.<br>
-                        <strong>Control:</strong> {_html.escape(mcm['control'].split('.')[0])}.<br>
-                        <strong>Measure:</strong> {_html.escape(mcm['measure'].split('.')[0])}.
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        section_divider("🎯", "Root Cause Detection", "Ranking murni dari jumlah dan kontribusi kasus delay pada filter aktif")
+        reason_display = delay_df.copy()
+        reason_display.insert(0, "rank", range(1, len(reason_display) + 1))
+        reason_display["share_of_delay"] = (
+            reason_display["late_shipments"] / total_late * 100 if total_late else 0.0
+        ).round(2)
+        reason_display["avg_duration"] = reason_display["avg_duration"].round(2)
+        reason_display = reason_display.rename(
+            columns={
+                "rank": "Rank",
+                "reason_category": "Root Cause",
+                "late_shipments": "Cases",
+                "share_of_delay": "Share of Delay (%)",
+                "avg_duration": "Avg Duration",
+            }
+        )
+        st.dataframe(reason_display, width="stretch", hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -809,8 +828,40 @@ with tab_branch:
         b_cols = st.columns(2)
         with b_cols[0]:
             readout_card("Top Performer", str(best_b["branch_city"]), f"{best_b['on_time_rate']:.1f}% on-time", "green")
+            info_button_gap()
+            with st.popover("ⓘ", help="Lihat sumber data dan cara hitung", key="branch_top_performer_info"):
+                best_volume = int(best_b["volume"])
+                best_late = int(best_b["late_shipments"])
+                st.markdown(
+                    f"""
+                    **Top Performer** adalah cabang dengan on-time rate tertinggi pada filter aktif.
+                    Jika nilainya sama, volume shipment terbesar menjadi pembeda.
+
+                    **{best_b['branch_city']}** mencatat **{best_volume - best_late:,} shipment on-time**
+                    dari **{best_volume:,} shipment**, sehingga on-time rate-nya
+                    **{float(best_b['on_time_rate']):.1f}%**.
+                    """
+                )
         with b_cols[1]:
-            readout_card("Highest Risk", str(worst_b["branch_city"]) if worst_b is not None else "-", f"{worst_b['late_rate']:.1f}% late rate" if worst_b is not None else "-", "red" if (worst_b is not None and worst_b["late_rate"] >= 25) else "yellow")
+            readout_card("Highest-Risk Branch", str(worst_b["branch_city"]) if worst_b is not None else "-", f"{worst_b['late_rate']:.1f}% late rate" if worst_b is not None else "-", "red" if (worst_b is not None and worst_b["late_rate"] >= 25) else "yellow")
+            info_button_gap()
+            with st.popover("ⓘ", help="Lihat sumber data dan cara hitung", key="branch_highest_risk_info"):
+                if worst_b is not None:
+                    branch_rate_gap = float(worst_b["late_rate"]) - late_rate
+                    st.markdown(
+                        f"""
+                        **Highest-Risk Branch** adalah cabang asal dengan late rate tertinggi
+                        pada filter aktif. Jika nilainya sama, jumlah delay terbesar menjadi pembeda.
+
+                        **{worst_b['branch_city']}** mencatat **{int(worst_b['late_shipments']):,} delay**
+                        dari **{int(worst_b['volume']):,} shipment** atau
+                        **{float(worst_b['late_rate']):.1f}%**,
+                        {abs(branch_rate_gap):.1f} poin persentase
+                        **{'di atas' if branch_rate_gap >= 0 else 'di bawah'} late rate global**.
+                        """
+                    )
+                else:
+                    st.write("Data cabang belum tersedia untuk filter aktif.")
             
         st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
     if not branch_df.empty:
@@ -857,9 +908,15 @@ with tab_routes:
     section_divider("🛣️", "Route Bottlenecks", "Pemetaan aliran rute dari asal hingga tujuan yang menyumbang keterlambatan terbesar")
     
     if top_route is not None:
+        top_route_label = format_route_entity(
+            top_route["origin_city"],
+            top_route["transit_point"],
+            top_route["destination_city"],
+        )
         takeaway_banner(
-            f"Rute paling berisiko adalah <strong>{top_route['origin_city']} → {top_route['transit_point']} → {top_route['destination_city']}</strong> "
-            f"dengan {int(top_route['late_shipments']):,} keterlambatan ({top_route['late_rate']:.1f}% dari total volume di rute ini)."
+            f"Rute dengan delay terbanyak adalah <strong>{_html.escape(top_route_label)}</strong>: "
+            f"{int(top_route['late_shipments']):,} kasus dari {int(top_route['volume']):,} shipment "
+            f"({top_route['late_rate']:.1f}% late rate)."
         )
     if not route_df.empty:
         chart_indicator("Tabel: late shipments, late rate, dan duration tinggi = bottleneck lebih kuat.", "bad")
@@ -921,25 +978,81 @@ with tab_segments:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TAB: DSS Recommendation (enhanced with MCM, KPI Monitoring, Business Value)
+# TAB: DSS Analysis (rule-based from active warehouse metrics)
 # ═══════════════════════════════════════════════════════════════════════════
 
 with tab_dss:
 
     # ── Top KPI indicators ──
-    section_divider("🧠", "Decision Support Recommendation", "Rangkuman sistem rekomendasi untuk menentukan langkah strategis")
+    section_divider("🧠", "Decision Support Analysis", "Ranking rule-based dari metrik warehouse pada filter aktif")
     top_risk_score = float(top_dss["risk_score"]) if top_dss is not None else 0.0
     top_risk_entity = f"{top_dss['area']} - {top_dss['entity']}" if top_dss is not None else "Belum ada ranking"
     main_cause = str(top_reason["reason_category"]) if top_reason is not None else "-"
-    main_cause_note = f"{int(top_reason['late_shipments']):,} kasus delay" if top_reason is not None else "Belum ada delay"
+    main_cause_note = (
+        f"{top_reason_count:,} kasus · {top_reason_share:.1f}% dari delay"
+        if top_reason is not None
+        else "Belum ada delay"
+    )
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        dss_summary_card("DSS Status", decision_status, "Label dari posisi risk score terhadap distribusi ranking aktif.", decision_tone_color)
+        dss_summary_card("DSS Status", decision_status, "Late rate global dibanding distribusi area aktif.", decision_tone_color)
+        info_button_gap()
+        with st.popover("ⓘ", help="Lihat sumber data dan cara hitung", key="dss_status_info"):
+            if len(area_late_rates) >= 3:
+                area_median = float(area_late_rates.quantile(0.50))
+                area_q3 = float(area_late_rates.quantile(0.75))
+                st.markdown(
+                    f"""
+                    **DSS Status** menggambarkan kondisi keseluruhan, bukan status satu area saja.
+                    Late rate global **{late_rate:.1f}%** dibandingkan dengan distribusi late rate
+                    seluruh cabang, destinasi, dan rute pada filter aktif.
+
+                    - **Critical:** late rate global ≥ Q3 ({area_q3:.1f}%)
+                    - **At Risk:** late rate global ≥ median ({area_median:.1f}%)
+                    - **Controlled:** late rate global < median
+
+                    Hasil saat ini: **{decision_status}**.
+                    """
+                )
+            else:
+                st.write("Belum cukup area untuk membentuk distribusi status DSS.")
     with c2:
-        dss_summary_card("Top Risk Score", f"{top_risk_score:.1f}", top_risk_entity, decision_tone_color)
+        dss_summary_card("Top Risk Score", f"{top_risk_score:.1f}", top_risk_entity, priority_tone_color)
+        info_button_gap()
+        with st.popover("ⓘ", help="Lihat sumber data dan cara hitung", key="dss_top_risk_info"):
+            if top_dss is not None:
+                st.markdown(
+                    f"""
+                    **Top Risk Score** adalah skor tertinggi dalam ranking area pada filter aktif.
+
+                    `50% late rate + 30% normalized late shipments + 20% normalized duration`
+
+                    **{top_dss['area']} — {top_dss['entity']}** mendapat skor
+                    **{top_risk_score:.1f}** dari {float(top_dss['late_rate']):.1f}% late rate,
+                    {int(top_dss['late_shipments']):,} paket terlambat, dan
+                    {float(top_dss['avg_duration']):.2f} hari rata-rata durasi.
+                    """
+                )
+            else:
+                st.write("Risk ranking belum tersedia untuk filter aktif.")
     with c3:
         dss_summary_card("Main Cause", main_cause, main_cause_note, "yellow")
+        info_button_gap()
+        with st.popover("ⓘ", help="Lihat sumber data dan cara hitung", key="dss_main_cause_info"):
+            if top_reason is not None:
+                st.markdown(
+                    f"""
+                    Seluruh shipment terlambat dikelompokkan berdasarkan kategori penyebab,
+                    lalu diurutkan dari jumlah kasus terbesar.
+
+                    **{main_cause}** berada di peringkat pertama dengan
+                    **{top_reason_count:,} kasus** atau **{top_reason_share:.1f}%**
+                    dari total **{total_late:,} delay** pada filter aktif.
+                    """
+                )
+            else:
+                st.write("Tidak ada shipment terlambat pada filter aktif.")
 
     formula_box(
         "Rumus Risk Score",
@@ -948,8 +1061,8 @@ with tab_dss:
     )
     formula_box(
         "Rumus Status DSS",
-        "Status Critical / At Risk / Controlled tidak memakai angka manual. Status ditentukan dari posisi score terhadap distribusi Risk Ranking aktif.",
-        "Critical >= Q3 risk_score; At Risk >= median risk_score; Controlled < median risk_score",
+        "Status Critical / At Risk / Controlled ditentukan dari posisi late rate global terhadap distribusi late rate seluruh area aktif.",
+        "Critical >= Q3 area late_rate; At Risk >= median area late_rate; Controlled < median area late_rate",
     )
 
     st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
@@ -968,74 +1081,32 @@ with tab_dss:
         dss_panel("Prioritas Keputusan", priority_copy)
     with panel_cols[1]:
         route_copy = (
-            f"Rute paling perlu diawasi adalah {top_route['origin_city']} -> {top_route['transit_point']} -> {top_route['destination_city']} karena menyumbang {int(top_route['late_shipments']):,} keterlambatan."
+            f"{format_route_entity(top_route['origin_city'], top_route['transit_point'], top_route['destination_city'])} "
+            f"mencatat {int(top_route['late_shipments']):,} delay dari {int(top_route['volume']):,} shipment "
+            f"({float(top_route['late_rate']):.1f}%) dengan durasi rata-rata {float(top_route['avg_duration']):.2f} hari."
             if top_route is not None
             else "Belum ada rute bottleneck pada filter ini."
         )
-        dss_panel("Rute dan Hub yang Perlu Diawasi", route_copy)
+        dss_panel("Rute dengan Delay Terbanyak", route_copy)
 
     panel_cols = st.columns(2)
     with panel_cols[0]:
         dest_copy = (
-            f"Destinasi {risky_dest['destination_city']} ({risky_dest['destination_province']}) memiliki late rate {risky_dest['late_rate']:.1f}%. Perlu validasi kapasitas last-mile, estimasi SLA, dan kesiapan mitra lokal."
+            f"{risky_dest['destination_city']} ({risky_dest['destination_province']}) mencatat "
+            f"{int(risky_dest['late_shipments']):,} delay dari {int(risky_dest['volume']):,} shipment "
+            f"({float(risky_dest['late_rate']):.1f}%) dengan durasi rata-rata {float(risky_dest['avg_duration']):.2f} hari."
             if risky_dest is not None
             else "Belum ada destinasi berisiko pada filter ini."
         )
-        dss_panel("Destinasi Berisiko", dest_copy)
+        dss_panel("Late Rate Destinasi Tertinggi", dest_copy)
     with panel_cols[1]:
         cause_copy = (
-            f"Root cause dominan adalah {top_reason['reason_category']} dengan {int(top_reason['late_shipments']):,} kasus. Keputusan terbaik adalah mengarahkan tindakan pada penyebab ini dulu sebelum memperluas perbaikan."
+            f"{top_reason['reason_category']} berada di peringkat pertama dengan {top_reason_count:,} kasus, "
+            f"setara {top_reason_share:.1f}% dari {total_late:,} shipment terlambat pada filter aktif."
             if top_reason is not None
             else "Belum ada root cause delay pada filter ini."
         )
-        dss_panel("Root Cause Utama", cause_copy)
-
-    # ── Manage-Control-Measure Framework per Root Cause ──
-    section_divider("🔧", "Manage-Control-Measure Framework", "Rekomendasi aksi terstruktur berdasarkan root cause delay terbesar")
-
-    if top_reason is not None:
-        top_reason_name = str(top_reason["reason_category"])
-        top_mcm = get_delay_mcm(top_reason_name)
-
-        st.markdown(
-            f"""
-            <div class="takeaway-banner">
-                <div class="takeaway-label">🎯 Focus Area</div>
-                <div class="takeaway-text">
-                    Root cause dominan adalah <strong>{_html.escape(top_reason_name)}</strong> dengan
-                    <strong>{int(top_reason['late_shipments']):,}</strong> kasus keterlambatan.
-                    Berikut adalah rekomendasi aksi terstruktur menggunakan framework Manage-Control-Measure.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        mcm_cols = st.columns(3)
-        with mcm_cols[0]:
-            mcm_card("manage", "🔵 Manage", top_mcm["manage"])
-        with mcm_cols[1]:
-            mcm_card("control", "🟡 Control", top_mcm["control"])
-        with mcm_cols[2]:
-            mcm_card("measure", "🟢 Measure", top_mcm["measure"])
-
-        # Show MCM for 2nd top reason if available
-        if len(delay_df) > 1:
-            second_reason = delay_df.iloc[1]
-            second_reason_name = str(second_reason["reason_category"])
-            second_mcm = get_delay_mcm(second_reason_name)
-            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-            st.caption(f"Root cause ke-2: {second_reason_name} ({int(second_reason['late_shipments']):,} kasus)")
-            mcm_cols2 = st.columns(3)
-            with mcm_cols2[0]:
-                mcm_card("manage", "🔵 Manage", second_mcm["manage"])
-            with mcm_cols2[1]:
-                mcm_card("control", "🟡 Control", second_mcm["control"])
-            with mcm_cols2[2]:
-                mcm_card("measure", "🟢 Measure", second_mcm["measure"])
-
-    else:
-        st.info("Belum ada root cause delay untuk ditampilkan. Jalankan ETL dan pastikan data tersedia.")
+        dss_panel("Root Cause Terdeteksi", cause_copy)
 
     # ── KPI Monitoring System ──
     section_divider("📡", "KPI Monitoring System", "Monitoring indikator kinerja utama dengan alert threshold")
@@ -1088,45 +1159,6 @@ with tab_dss:
         st.dataframe(ranking_display, width="stretch", hide_index=True)
     else:
         st.info("Risk ranking belum tersedia untuk filter ini.")
-
-    # ── Best Action Plan ──
-    section_divider("✅", "Best Action Plan", "Strategi mitigasi utama berdasarkan kondisi operasional saat ini")
-    if late_rate >= 25:
-        action_plan = [
-            ("Escalate", "Aktifkan escalation mode untuk cabang/rute prioritas selama periode filter."),
-            ("Add Capacity", "Tambah kapasitas hub atau armada cadangan pada rute bottleneck."),
-            ("Daily Audit", "Audit root cause dominan harian sampai late rate turun di bawah 20%."),
-        ]
-    elif late_rate >= 12:
-        action_plan = [
-            ("Monitor", "Fokuskan monitoring pada cabang dan destinasi dengan late rate tertinggi."),
-            ("Prevent", "Lakukan preventive capacity planning untuk periode volume tinggi."),
-            ("Improve", "Perbaiki proses yang terkait root cause dominan sebelum menjadi masalah sistemik."),
-        ]
-    else:
-        action_plan = [
-            ("Maintain", "Pertahankan pola operasi saat ini karena SLA relatif sehat."),
-            ("Watchlist", "Monitor rute remote dan peak season sebagai early warning."),
-            ("Benchmark", "Gunakan branch terbaik sebagai benchmark SOP untuk cabang lain."),
-        ]
-
-    action_cols = st.columns(3)
-    for col, (title, action) in zip(action_cols, action_plan):
-        with col:
-            dss_panel(title, action)
-
-    # ── Business Value Table ──
-    section_divider("💎", "Business Value", "Perbandingan kondisi sebelum dan sesudah implementasi Data Warehouse")
-
-    takeaway_banner(
-        "Smart Warehouse mengubah perbaikan operasional melalui <strong>proses yang lebih cepat, akurat, dan juga terkendali</strong>. "
-        "Terlihat pada <strong>penurunan lead time</strong>, berkurangnya risiko error, "
-        "<strong>keputusan yang responsif</strong>, dan <strong>cashflow yang baik</strong>."
-    )
-
-    bv_df = get_business_value_df()
-    render_business_value_table(bv_df)
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TAB: Shipment Detail
