@@ -22,8 +22,6 @@ TABLES = [
     "dim_customer",
     "dim_status",
     "dim_reason",
-    "etl_run_log",
-    "etl_step_log",
 ]
 
 TABLE_DESCRIPTIONS = {
@@ -37,8 +35,6 @@ TABLE_DESCRIPTIONS = {
     "dim_customer": "Dimensi informasi pelanggan dan tipe customer.",
     "dim_status": "Dimensi status pengiriman (Delivered, Delayed, Failed, dsb).",
     "dim_reason": "Dimensi alasan keterlambatan atau kegagalan pengiriman.",
-    "etl_run_log": "Log setiap eksekusi pipeline ETL.",
-    "etl_step_log": "Log detail per-langkah dari setiap run ETL.",
 }
 
 
@@ -104,13 +100,6 @@ for row in dimension_rows:
             if st.button(table, key=f"schema_{table}", width="stretch"):
                 st.session_state["selected_warehouse_table"] = table
 
-st.markdown('<div class="section-label">ETL Logs</div>', unsafe_allow_html=True)
-log_cols = st.columns(2)
-for col, table in zip(log_cols, ["etl_run_log", "etl_step_log"]):
-    with col:
-        if st.button(table, key=f"schema_{table}", width="stretch"):
-            st.session_state["selected_warehouse_table"] = table
-
 # ── Warehouse stats ──
 st.markdown(
     """
@@ -139,6 +128,9 @@ for idx, table in enumerate(["dim_service", "dim_item", "dim_route", "dim_custom
 
 # ── Table Preview ──
 selected_table = st.session_state.get("selected_warehouse_table", "fact_shipping")
+if selected_table not in TABLES:
+    selected_table = "fact_shipping"
+    st.session_state["selected_warehouse_table"] = selected_table
 desc = TABLE_DESCRIPTIONS.get(selected_table, "")
 try:
     df = preview_table(engine, selected_table)

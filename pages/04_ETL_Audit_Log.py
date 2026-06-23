@@ -12,6 +12,18 @@ from utils.ui import hero, load_css, metric_card, scroll_table, status_badge
 load_css()
 
 
+AUDIT_TABLES = {
+    "etl_run_log": {
+        "description": "Log setiap eksekusi pipeline ETL.",
+        "order_by": "run_id DESC",
+    },
+    "etl_step_log": {
+        "description": "Log detail setiap langkah dalam pipeline ETL.",
+        "order_by": "step_log_id DESC",
+    },
+}
+
+
 @st.cache_resource
 def get_engine():
     return create_engine(get_default_db_url(), pool_pre_ping=True)
@@ -60,6 +72,24 @@ def load_step_logs(engine, run_id: int) -> pd.DataFrame:
     )
 
 
+def audit_table_count(engine, table: str) -> int:
+    if table not in AUDIT_TABLES:
+        raise ValueError(f"Tabel audit tidak valid: {table}")
+    with engine.connect() as conn:
+        return int(conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0)
+
+
+def preview_audit_table(engine, table: str, limit: int = 100) -> pd.DataFrame:
+    if table not in AUDIT_TABLES:
+        raise ValueError(f"Tabel audit tidak valid: {table}")
+    order_by = AUDIT_TABLES[table]["order_by"]
+    return pd.read_sql(
+        text(f"SELECT * FROM {table} ORDER BY {order_by} LIMIT :limit"),
+        engine,
+        params={"limit": limit},
+    )
+
+
 engine = get_engine()
 
 hero(
@@ -97,6 +127,63 @@ with cols[2]:
     metric_card("Failed", f"{failed_count:,}", "error runs", "red" if failed_count > 0 else "gray")
 with cols[3]:
     metric_card("Rows Loaded", f"{total_loaded:,}", "total processed", "yellow" if failed_count else "green")
+
+# ── Raw audit tables ──
+st.markdown(
+    """
+    <div class="section-divider">
+        <div class="section-divider-icon">🗃️</div>
+        <div class="section-divider-text">
+            <div class="section-divider-title">ETL Log Tables</div>
+            <div class="section-divider-sub">Pilih tabel untuk melihat raw audit records</div>
+        </div>
+        <div class="section-divider-line"></div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+selected_audit_table = st.session_state.get("selected_audit_table", "etl_run_log")
+if selected_audit_table not in AUDIT_TABLES:
+    selected_audit_table = "etl_run_log"
+    st.session_state["selected_audit_table"] = selected_audit_table
+
+audit_cols = st.columns(2)
+for col, table in zip(audit_cols, AUDIT_TABLES):
+    with col:
+        if st.button(
+            table,
+            key=f"audit_table_{table}",
+            width="stretch",
+            type="primary" if selected_audit_table == table else "secondary",
+        ):
+            st.session_state["selected_audit_table"] = table
+            st.rerun()
+
+selected_audit_table = st.session_state.get("selected_audit_table", "etl_run_log")
+try:
+    audit_count = audit_table_count(engine, selected_audit_table)
+    audit_preview = preview_audit_table(engine, selected_audit_table)
+    audit_description = str(AUDIT_TABLES[selected_audit_table]["description"])
+
+    st.markdown(
+        f"""
+        <div style="display:flex; align-items:center; gap:14px; margin:14px 0 12px;">
+            <div style="padding:6px 14px; background:rgba(129,140,248,.14); border:1px solid rgba(129,140,248,.28);
+                        border-radius:10px; color:#C7D2FE; font-weight:800; font-size:14px;">
+                {_html.escape(selected_audit_table)}
+            </div>
+            <div style="color:#94A3B8; font-size:13px;">{audit_count:,} rows</div>
+            <div style="color:#64748B; font-size:12px; margin-left:auto;">{_html.escape(audit_description)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.dataframe(audit_preview, width="stretch", hide_index=True)
+except Exception as exc:
+    st.markdown('<div class="empty-state">Tabel audit belum tersedia.</div>', unsafe_allow_html=True)
+    with st.expander("Detail error tabel audit"):
+        st.exception(exc)
 
 # ── Section header ──
 st.markdown(
