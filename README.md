@@ -1,154 +1,94 @@
 # JNE Logistics Data Warehouse
 
-Project tugas akhir Data Warehouse untuk simulasi performa pengiriman logistik. Aplikasi ini memisahkan workflow menjadi data generation, ETL operations, database warehouse PostgreSQL, dan delivery analytics untuk kebutuhan manajerial.
+An end-to-end logistics data warehouse project for simulating shipment operations, processing raw delivery transactions through an ETL pipeline, and presenting managerial analytics through an interactive Streamlit dashboard.
 
-## Struktur Utama
+The application is designed for a Data Warehouse final project. It separates the workflow into synthetic data generation, ETL processing, PostgreSQL warehouse storage, audit logging, and executive delivery performance analytics.
 
-- `dataset/baseline/`: dataset statis sebagai baseline/acuan demo dan validasi.
-- `dataset/dynamic/raw/`: raw CSV dinamis hasil generate harian yang siap diproses ETL.
-- `dataset/dynamic/processed/`: arsip raw dan clean CSV setelah ETL selesai.
-- `generate_data.py`: membuat raw CSV dummy ke folder `dataset/dynamic/raw/`.
-- `etl_process.py`: ETL core dari raw CSV ke PostgreSQL star schema.
-- `pages/01_Data_Operations.py`: halaman Streamlit untuk generate raw data, run ETL, dan ringkasan audit.
-- `pages/02_Analytics.py`: dashboard manajerial untuk SLA, cabang, rute, destinasi, customer, item, dan root cause delay.
-- `pages/03_Data_Warehouse_Detail.py`: halaman eksplorasi star schema dan preview tabel warehouse.
-- `pages/04_ETL_Audit_Log.py`: halaman timeline run ETL dan detail step pipeline.
-- `utils/queries.py`: query analytics agar halaman visual tidak bercampur dengan SQL.
-- `utils/ui.py`: helper custom CSS dan komponen visual reusable.
-- `schema.sql`: definisi fact table, dimension table, dan ETL log.
-- `docker-compose.yml`: menjalankan PostgreSQL dan Adminer.
+## Key Features
 
-## 1. Setup Project
+- **Synthetic logistics data generation** for daily shipment batches, including configurable date ranges, row counts, random seeds, and optional dirty data injection.
+- **ETL pipeline** that extracts raw CSV files, cleans and normalizes shipment records, loads PostgreSQL dimension and fact tables, and archives processed files.
+- **PostgreSQL star schema** with `fact_shipping` and supporting dimensions for time, branch, service, destination, item, route, customer, status, and delay reason.
+- **ETL audit trail** through run-level and step-level logs, including row counts, duration, status, source file, clean output, and error messages.
+- **Interactive Streamlit dashboard** for monitoring SLA performance, revenue, branch performance, route bottlenecks, destination risk, customer segments, item categories, and root causes of delay.
+- **Decision Support System (DSS)** with rule-based risk scoring, KPI alerts, executive insights, and prioritized operational areas.
 
-Kalau baru clone:
+## Tech Stack
 
-```powershell
-git clone "https://github.com/atharikputra/DW-Logistic"
-cd "DW-Logistic"
-```
+- **Python**: Streamlit, pandas, NumPy, Faker
+- **Visualization**: Plotly
+- **Database**: PostgreSQL
+- **ORM / Database Access**: SQLAlchemy, psycopg2
+- **Containerization**: Docker Compose
+- **Database Viewer**: Adminer
 
-Kalau sudah ada folder project:
-
-```powershell
-cd "C:\AIDAN\SEM 6\DATWEAR\DW-Logistic"
-```
-
-Buat dan aktifkan virtual environment:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-```
-
-Kalau PowerShell menolak aktivasi:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-## 2. Setup Environment
-
-Copy file contoh environment:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Default koneksi aplikasi ke PostgreSQL:
+## Project Structure
 
 ```text
-Host     : 127.0.0.1
-Port     : 5433
-Database : logitrack_dw
-User     : admin
-Password : admin123
+.
+|-- app.py                          # Streamlit application entry point
+|-- docker-compose.yml              # PostgreSQL and Adminer services
+|-- requirements.txt                # Python dependencies
+|-- schema.sql                      # Warehouse schema and ETL log tables
+|-- dataset/
+|   |-- baseline/                   # Static baseline dataset for repeatable demos
+|   `-- dynamic/
+|       |-- raw/                    # Generated raw CSV files waiting for ETL
+|       `-- processed/              # Archived raw and clean files after ETL
+|-- pages/
+|   |-- 01_Data_Operations.py       # Data generation, ETL execution, and audit summary
+|   |-- 02_Analytics.py             # Executive logistics analytics dashboard
+|   |-- 03_Data_Warehouse_Detail.py # Star schema exploration and table previews
+|   `-- 04_ETL_Audit_Log.py         # ETL run and step history
+|-- ruleset/
+|   |-- generate_data.py            # Synthetic logistics data generator
+|   |-- etl_process.py              # ETL pipeline implementation
+|   `-- dss.py                      # DSS scoring, KPI alerting, and insights
+`-- utils/
+    |-- dataset_naming.py           # Batch file naming helpers
+    |-- queries.py                  # Reusable analytics SQL queries
+    `-- ui.py                       # Shared Streamlit UI components and styling
 ```
 
-## 3. Jalankan PostgreSQL Dan Adminer
+## Data Warehouse Schema
 
-```powershell
-docker compose up -d
-```
+The warehouse uses a star schema centered on `fact_shipping`.
 
-Cek container:
+| Table | Purpose |
+| --- | --- |
+| `fact_shipping` | Shipment transaction facts, including tracking number, duration, cost, and late status. |
+| `dim_time` | Date, day, month, quarter, year, and weekend attributes. |
+| `dim_branch` | Origin branch details. |
+| `dim_service` | Service type, service name, and SLA days. |
+| `dim_destination` | Receiver destination details. |
+| `dim_item` | Item category, weight, and fragile status. |
+| `dim_route` | Origin, transit point, and destination route code. |
+| `dim_customer` | Customer name, type, and phone number. |
+| `dim_status` | Shipment status values. |
+| `dim_reason` | Delay reason category and description. |
+| `etl_run_log` | ETL run metadata and final status. |
+| `etl_step_log` | Step-by-step ETL execution history. |
 
-```powershell
-docker ps
-```
 
-Harus muncul container:
+## Dataset Workflow
 
-- `LogiTrack_DW`: PostgreSQL database.
-- `LogiTrack_Adminer`: web database viewer.
+The project separates static and dynamic data sources:
 
-## 4. Jalankan Streamlit
+- `dataset/baseline/` contains a static CSV dataset for repeatable demos and validation.
+- `dataset/dynamic/raw/` stores newly generated raw CSV batches waiting for ETL.
+- `dataset/dynamic/processed/` stores processed raw files and exported clean CSV files after a successful ETL run.
 
-```powershell
-streamlit run app.py
-```
-
-Alur demo yang disarankan:
-
-1. Buka halaman `Data Operations`.
-2. Set jumlah data, rentang tanggal, seed opsional, dan opsi dirty data.
-3. Klik `Generate Raw Data` untuk mensimulasikan batch data operasional harian baru.
-4. Klik `Run ETL Pipeline`.
-5. Buka halaman `Data Warehouse Detail` atau `ETL Audit Log` untuk memeriksa hasil load dan riwayat pipeline.
-6. Buka halaman `Analytics`.
-7. Gunakan filter day/week/month, tanggal, cabang, layanan, destinasi, customer type, dan kategori barang.
-
-## 5. Cek Database Lewat Adminer
-
-Buka browser:
+Generated raw files follow this naming pattern:
 
 ```text
-http://localhost:8080
+raw_nasional_logistics_data_YYYYMMDD_batch001.csv
 ```
 
-Login Adminer:
+After a successful ETL run, the raw file is moved into `dataset/dynamic/processed/` with a `done_` prefix. This prevents the same batch from being processed twice.
 
-```text
-System   : PostgreSQL
-Server   : db
-Username : admin
-Password : admin123
-Database : logitrack_dw
-```
+## Notes
 
-Catatan: di Adminer, `Server` pakai `db` karena Adminer dan PostgreSQL berjalan di network Docker yang sama. Untuk aplikasi Python/Streamlit, host tetap `127.0.0.1` dari `.env` dan port host memakai `5433` agar tidak bentrok dengan PostgreSQL lokal.
-
-Tabel utama yang bisa dicek:
-
-- `fact_shipping`
-- `dim_time`
-- `dim_branch`
-- `dim_service`
-- `dim_destination`
-- `dim_item`
-- `dim_route`
-- `dim_customer`
-- `dim_status`
-- `dim_reason`
-- `etl_run_log`
-- `etl_step_log`
-
-Query cepat di Adminer:
-
-```sql
-SELECT COUNT(*) FROM fact_shipping;
-
-SELECT *
-FROM etl_run_log
-ORDER BY run_id DESC;
-```
-
-## Catatan Workflow
-
-Project ini membedakan dua jenis dataset:
-
-- **Data dinamis**: berada di `dataset/dynamic/raw/`. File ini dibuat oleh generator untuk mensimulasikan data operasional harian yang bisa berubah dari waktu ke waktu. Format namanya `raw_nasional_logistics_data_YYYYMMDD_batch001.csv`, lalu batch berikutnya pada tanggal yang sama menjadi `batch002`, `batch003`, dan seterusnya.
-- **Baseline statis**: berada di `dataset/baseline/`. File ini tidak berubah otomatis dan hanya dipakai sebagai acuan demo ulang atau pembanding bila butuh hasil yang konsisten.
-
-File raw dinamis yang berhasil diproses ETL akan dipindahkan ke folder `dataset/dynamic/processed/`. Halaman `Data Operations` hanya menjalankan ETL jika ada raw CSV valid di folder `dataset/dynamic/raw/`, sehingga file lama yang sudah selesai tidak diproses dua kali.
+- The ETL pipeline performs a full warehouse refresh by default.
+- The Streamlit UI only enables ETL execution when a valid raw CSV exists in `dataset/dynamic/raw/`.
+- The database schema is reset-safe for development because `schema.sql` rebuilds the warehouse tables before loading data.
+- The dashboard depends on successful warehouse loading. If analytics pages are empty, generate a batch and run the ETL pipeline first.
